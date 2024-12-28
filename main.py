@@ -5,6 +5,7 @@ from typing import List, Optional
 import pandas as pd
 from icecream import ic
 
+
 def extract_all_subdirs(zip_path: Path, extract_to: Path) -> List[Path]:
     """
     Extracts all subdirectories within a zipped directory.
@@ -25,6 +26,7 @@ def extract_all_subdirs(zip_path: Path, extract_to: Path) -> List[Path]:
                 extracted_files.append(full_path)
     return extracted_files
 
+
 def process_csv_from_zip(zip_path: Path) -> Optional[pd.DataFrame]:
     """
     Processes a zipped directory containing a single CSV file and returns the data as a DataFrame.
@@ -41,6 +43,7 @@ def process_csv_from_zip(zip_path: Path) -> Optional[pd.DataFrame]:
             return None
         with z.open(csv_files[0]) as csv_file:
             return pd.read_csv(csv_file)
+
 
 def combine_csvs_from_dir(zip_dir: Path) -> pd.DataFrame:
     """
@@ -64,6 +67,7 @@ def combine_csvs_from_dir(zip_dir: Path) -> pd.DataFrame:
     else:
         return pd.DataFrame()  # Return an empty DataFrame if no data was found.
 
+
 def dipc_raw_to_dataframe(dir_a: Path) -> pd.DataFrame:
     """
     Main function to process the zipped directory and return a combined DataFrame.
@@ -85,6 +89,7 @@ def dipc_raw_to_dataframe(dir_a: Path) -> pd.DataFrame:
         for file in temp_dir.rglob("*"):
             file.unlink()
         temp_dir.rmdir()
+
 
 def filter_dataframe(
     dataframe: pd.DataFrame, column: str, filter_text: str
@@ -109,6 +114,49 @@ def filter_dataframe(
     filtered_df = dataframe[dataframe[column].astype(str) == filter_text]
     return filtered_df
 
+
+def convert_dipc_raw_df_to_MPI_df(input_df: pd.DataFrame) -> pd.DataFrame:
+    # Convert 'TIME_INTERVAL' to 'Interval End' in mm/dd/yyyy hh:mm format
+    input_df["Interval End"] = pd.to_datetime(input_df["TIME_INTERVAL"]).dt.strftime(
+        "%m/%d/%Y %H:%M"
+    )
+
+    # Calculate 'Loss Factor' as the ratio of LMP_SMP to LMP, handle division by zero
+    input_df["Loss Factor"] = input_df.apply(
+        lambda row: round(row["LMP_SMP"] / row["LMP"], 2) if row["LMP"] != 0 else 1,
+        axis=1,
+    )
+
+    # Select and reorder columns for the output dataframe
+    output_df = input_df[
+        [
+            "Interval End",
+            "RESOURCE_NAME",
+            "SCHED_MW",
+            "LMP",
+            "Loss Factor",
+            "LMP_SMP",
+            "LMP_LOSS",
+            "LMP_CONGESTION",
+        ]
+    ]
+
+    # Rename columns as per the desired output
+    output_df.columns = [
+        "Interval End",
+        "Price Node",
+        "MW",
+        "LMP",
+        "Loss Factor",
+        "Energy",
+        "Loss",
+        "Congestion",
+    ]
+
+    # Return the processed dataframe
+    return output_df
+
+
 def save_dataframe_to_csv(dataframe: pd.DataFrame, output_filename: Path) -> None:
     """
     Saves a DataFrame to a CSV file. Creates a new file if it doesn't exist,
@@ -127,11 +175,16 @@ def save_dataframe_to_csv(dataframe: pd.DataFrame, output_filename: Path) -> Non
     except Exception as e:
         print(f"An error occurred while saving the DataFrame: {e}")
 
+
 # Example Usage
 if __name__ == "__main__":
-    dir_a_path = Path(
-        "C:/Users/ps.public.PS-LT022-813B/Downloads/DIPC Energy Results &#8211; Raw_2024-12-23 0005-2024-12-24 0000.zip"
-    )
+    DAILY_DIPC_RAW_DATA_PATH = "C:\\Users\\ps.public.PS-LT022-813B\\Downloads\\DIPC Energy Results &#8211; Raw_2024-12-27 0005-2024-12-28 0000.zip"
+    OUTPUT_PATH = "output.csv"
+    RESOURCE_NAME = "10PPEI_U01"
+    dir_a_path = Path(DAILY_DIPC_RAW_DATA_PATH)
     combined_dataframe = dipc_raw_to_dataframe(dir_a_path)
-    ppei_df = filter_dataframe(combined_dataframe, "RESOURCE_NAME", "10PPEI_U01")
-    ic(ppei_df)
+    ppei_df = filter_dataframe(combined_dataframe, "RESOURCE_NAME", RESOURCE_NAME)
+    mpi_ppei_df = convert_dipc_raw_df_to_MPI_df(ppei_df)
+    print(mpi_ppei_df)
+    save_dataframe_to_csv(mpi_ppei_df, OUTPUT_PATH)
+    # ic(ppei_df)
